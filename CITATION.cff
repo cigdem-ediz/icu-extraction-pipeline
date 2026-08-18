@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Deterministic Rule-Based Extraction of Structured Data from Turkish ICU Discharge Summaries"
+authors:
+  - family-names: "Ediz"
+    given-names: "Cigdem"
+year: 2026
+version: "0.1.0"
+license: MIT
+keywords:
+  - clinical natural language processing
+  - non-English clinical NLP
+  - rule-based information extraction
+  - intensive care unit
+  - Turkish clinical text
+  - clinical pharmacy
+  - antimicrobial stewardship
