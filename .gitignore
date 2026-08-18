@@ -1,0 +1,29 @@
+# ---- NEVER commit real patient data ----
+*.xlsx
+*.xls
+*.csv
+*.tsv
+data/
+outputs/
+inputs/
+*_VeriTabani*
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.ipynb_checkpoints/
+
+# ---- OS / editor ----
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# ---- de-identification key — NEVER commit ----
+key_map*.csv
+
+# ---- test cache ----
+.pytest_cache/
