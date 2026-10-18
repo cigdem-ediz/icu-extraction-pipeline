@@ -46,7 +46,9 @@ SEKME_CONFIG = {
     },
     "LABORATUVAR": {
         "anahtar": ["Hasta_ID", "Tarih"],
-        "degerler": ["Kaynak", "WBC", "CRP", "Kreatinin", "BUN", "AST", "ALT",
+        # NOT: "Kaynak" DISLANDI — bu klinik veri degil, aracin provenance metadatasi
+        #       (degerin hangi rapordan alindigi). Manuel cikarimci bunu bilemez.
+        "degerler": ["WBC", "CRP", "Kreatinin", "BUN", "AST", "ALT",
                      "Total_Bil", "Direkt_Bil", "Albumin", "Na", "HCT", "PLT",
                      "NEU_pct", "Laktat"],
     },
@@ -169,6 +171,7 @@ def sheet_to_dict(ws, anahtar_sutunlar, deger_sutunlar):
         print(f"    UYARI: bu sekmede bulunamayan sutunlar: {eksik}")
 
     kayitlar = {}
+    mukerrer = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
         if all(c is None for c in row):
             continue  # tamamen bos satir
@@ -186,7 +189,25 @@ def sheet_to_dict(ws, anahtar_sutunlar, deger_sutunlar):
                 degerler[d] = row[j]
             else:
                 degerler[d] = None
-        kayitlar[anahtar] = degerler
+        # MUKERRER ANAHTAR BIRLESTIRME
+        # Kaynak PDF'te ayni rapor birden fazla kez basilabiliyor (orn. cok sayfali
+        # antibiyogram). Bu durumda ayni anahtar birden fazla satirda gorulur ve
+        # kopyalarin BAZILARINDA tarih basligi bulunmaz (devam sayfasi).
+        # Basitce "kayitlar[anahtar] = degerler" demek SON kopyayi alir; eger son
+        # kopya tarihsiz bir devam sayfasiysa, aslinda DOGRU cikarilmis olan tarih
+        # KAYBOLUR ve yapay bir "arac tarihi kaciridi" uyumsuzlugu uretilir.
+        # Cozum: kopyalari BIRLESTIR — dolu deger, bos degeri asla ezmez.
+        if anahtar in kayitlar:
+            mevcut = kayitlar[anahtar]
+            for d in deger_sutunlar:
+                if is_bos(mevcut.get(d)) and not is_bos(degerler.get(d)):
+                    mevcut[d] = degerler[d]
+            mukerrer[anahtar] = mukerrer.get(anahtar, 1) + 1
+        else:
+            kayitlar[anahtar] = degerler
+    if mukerrer:
+        print(f"    NOT: {len(mukerrer)} mukerrer anahtar birlestirildi "
+              f"({sum(mukerrer.values()) - len(mukerrer)} fazladan satir)")
     return kayitlar
 
 
@@ -199,8 +220,65 @@ def karsilastir_sekme(sekme_adi, ws_manuel, ws_oto, config):
     man = sheet_to_dict(ws_manuel, anahtar_s, deger_s)
     oto = sheet_to_dict(ws_oto, anahtar_s, deger_s)
 
+    # ── ANAHTAR BOZULMASI: YENIDEN ESLESTIRME ──────────────────────────────────
+    # Arac bir ANAHTAR alanini (orn. Mikroorganizma/Antibiyotik) cikaramazsa, o
+    # satirin anahtari bozulur ve kayit eslesmez. Sonuc: AYNI kayit hem
+    # "satir manuelde yok" hem "satir otomatikte yok" olarak IKI KEZ sayilir
+    # (cift sayim) — ustelik arac tarafinda DOGRU cikarilmis alanlar da uyumsuz
+    # gorunur. Cozum: eslesmemis satirlardan biri BOS anahtar alani iceriyorsa,
+    # ayni onek (Hasta_ID + Rapor_No) altindaki tek eslesmemis karsiligiyla
+    # yeniden eslestir. Belirsizlik varsa (birden fazla aday) DOKUNMA.
+    anahtar_hatalari = []
+    esles_yok_man = set(man) - set(oto)
+    esles_yok_oto = set(oto) - set(man)
+    if esles_yok_man and esles_yok_oto and len(anahtar_s) > 2:
+        n_onek = 2  # Hasta_ID + Rapor_No / Tarih
+        from collections import defaultdict as _dd
+        grup_m, grup_o = _dd(list), _dd(list)
+        for a in esles_yok_man:
+            grup_m[a[:n_onek]].append(a)
+        for a in esles_yok_oto:
+            grup_o[a[:n_onek]].append(a)
+        birlestirilen = 0
+        for onek in set(grup_m) & set(grup_o):
+            am, ao = grup_m[onek], grup_o[onek]
+            if len(am) != 1 or len(ao) != 1:
+                continue                      # belirsiz -> dokunma
+            a_m, a_o = am[0], ao[0]
+            # en az bir tarafta anahtar alani BOS olmali (= parse hatasi kaniti)
+            bos_m = any(x in ("", "—") for x in a_m[n_onek:])
+            bos_o = any(x in ("", "—") for x in a_o[n_onek:])
+            if not (bos_m or bos_o):
+                continue
+            # oto kaydini manuel anahtarina tasi, degerleri birlestir
+            birlesik = dict(oto[a_o])
+            for d in deger_s:
+                if is_bos(birlesik.get(d)) and not is_bos(man[a_m].get(d)):
+                    pass                      # manuel degeri OTO'ya YAZMA (bagimsizlik)
+            oto[a_m] = birlesik
+            del oto[a_o]
+            birlestirilen += 1
+            # ANAHTAR ALANI HATASINI KAYDET
+            # Yeniden eslestirme cift sayimi onler, ama anahtar alanindaki
+            # GERCEK hata da kaybolmamali: arac Mikroorganizma/Antibiyotik'i
+            # cikaramamis. Her bozulan anahtar alani TEK bir uyumsuzluk olarak
+            # ayrica kaydedilir (aksi halde en kritik hata hic sayilmazdi).
+            for _i, _alan in enumerate(anahtar_s):
+                if _i < n_onek:
+                    continue
+                if a_m[_i] != a_o[_i]:
+                    anahtar_hatalari.append(
+                        [a_m, _alan, a_m[_i], a_o[_i]])
+        if birlestirilen:
+            print(f"    NOT: {birlestirilen} kayit yeniden eslestirildi "
+                  f"(arac anahtar alanini cikaramamis; cift sayim engellendi); "
+                  f"{len(anahtar_hatalari)} anahtar-alani hatasi ayrica sayildi")
+
     tum_anahtarlar = set(man.keys()) | set(oto.keys())
     sonuclar = []
+    for _anh, _alan, _mv, _ov in anahtar_hatalari:
+        sonuclar.append([sekme_adi, *_anh, _alan, _mv, _ov, "UYUMSUZ",
+                         "ANAHTAR ALANI — arac cikaramadi (kayit yeniden eslestirildi)"])
 
     for anahtar in sorted(tum_anahtarlar):
         man_var = anahtar in man

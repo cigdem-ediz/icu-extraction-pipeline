@@ -749,7 +749,7 @@ def _build_amr_kurs(entries, kurs_no, ilac_key):
         "ilac_adi": ilac_raw, "etken_madde": etken or "?",
         "atc": atc or "?", "aware": aware or "?",
         "doz": doz or "?", "siklik": siklik or "?",
-        "uygulama_yolu": ref_yol or "IV",
+        "uygulama_yolu": {"P": "IV", "O": "PO"}.get(ref_yol, ref_yol or "IV"),
         "baslangic": entries[0][1], "bitis": entries[-1][1],
         "sure_gun": sure, "baslangic_gun_no": entries[0][0] - 1,
         "kurs_no": kurs_no, "ehu_onayi": "EVET",
