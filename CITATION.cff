@@ -6,6 +6,9 @@ authors:
     given-names: "Cigdem"
 year: 2026
 version: "1.0.0"
+doi: "10.5281/zenodo.23461019"
+date-released: "2026-10-18"
+repository-code: "https://github.com/cigdem-ediz/icu-extraction-pipeline"
 license: MIT
 keywords:
   - clinical natural language processing
